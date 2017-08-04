@@ -18,6 +18,14 @@
 \subsection{Алгоритм временных разностей} \label{subsect1_3_1}
 
 \subsection{Алгоритм SARSA} \label{subsect1_3_2}
+SARSA (state-action-reward-state-action) алгоритм "состояние-действие-награда-состояние-действие" относят к классу динамического программирование с применением эвристик. 
+
+\begin{equation}
+\label{eq:1_3_2p1}
+\begin{alignedat}{2}
+Q(s_{t},a_{t}) \leftarrow Q(s_{t},a_{t}) + \alpha[r_{t} + \gamma Q(s_{t+1},a_{t+1}) - Q(s_{t},a_{t})], 0 \le \gamma \le 1.
+\end{alignedat}
+\end{equation}
 
 \subsection{Алгоритм Q-обучения} \label{subsect1_3_3}
 
@@ -48,7 +56,7 @@ Q(s,a) \leftarrow Q(s,a) + \beta(r + \gamma E(s') - Q(s,a)), 0 \le \gamma \le 1.
 \begin{figure}[ht] 
 	\center
 	\includegraphics [scale=0.7] {ac}
-	\caption{Схема взаимодействия агента со средой} 
+	\caption{Структурная схема Актор-Критик метода} 
 	\label{img:ac}  
 \end{figure}
 
