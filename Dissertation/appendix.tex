@@ -1,4 +1,557 @@
 \input{Dissertation/appendixsetup}   % Предварительные настройки для правильного подключения Приложений
 \chapter{Листинг кода} \label{AppendixA}
 
+\begin{python}
+from keras.models import Sequential
+from keras.layers.core import Dense, Dropout, Activation, Flatten
+from keras.optimizers import RMSprop, SGD
+import numpy as np
+import random
+from keras.utils.visualize_util import plot
 
+VERBOSE = 0
+
+class ac_agent():
+def __init__(self, action_space, observation_space, gamma=0.9, epsilon=0.7, buffer_len=1024, actor_w=None, critic_w=None):
+self.action_space = action_space
+self.observation_space = observation_space
+# self.actor_model = self.init_actor_model('/home/mikhail/projects/hockey_ai/ai_models/agent1112_actor_6.h5')
+# self.critic_model = self.init_critic_model('/home/mikhail/projects/hockey_ai/ai_models/agent1112_critic_6.h5')
+print(actor_w, critic_w)
+self.actor_model = self.init_actor_model(weights=actor_w)
+self.critic_model = self.init_critic_model(weights=critic_w)
+self.actor_replay = []
+self.critic_replay = []
+self.gamma = gamma
+self.batchSize = 32
+self.buffer_len = buffer_len
+self.episode_move_counter = 0
+self.wins = 0
+self.losses = 0
+self.epsilon = epsilon
+self.actor_hist = 0
+self.critic_hist = 0
+
+def init_actor_model(self, weights=None):
+actor_model = Sequential()
+
+actor_model.add(Dense(256, init='lecun_uniform', input_shape=(self.observation_space,)))
+actor_model.add(Dropout(0.2))
+actor_model.add(Activation('relu'))
+
+actor_model.add(Dense(256, init='lecun_uniform'))
+actor_model.add(Dropout(0.2))
+actor_model.add(Activation('relu'))
+
+# actor_model.add(Dense(256, init='lecun_uniform'))
+# actor_model.add(Dropout(0.2))
+# actor_model.add(Activation('relu'))
+
+
+actor_model.add(Dense(self.action_space, init='lecun_uniform'))
+actor_model.add(Activation('linear'))
+
+if weights != None:
+actor_model.load_weights(weights)
+
+#a_optimizer = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
+a_optimizer = RMSprop()
+#actor_model.summary()
+actor_model.compile(loss='mse', optimizer=a_optimizer)
+plot(actor_model, to_file='graphics/actor_model.png', show_shapes=True)
+return actor_model
+
+def init_critic_model(self, weights=None):
+critic_model = Sequential()
+
+critic_model.add(Dense(256, init='lecun_uniform', input_shape=(self.observation_space,)))
+critic_model.add(Dropout(0.2))
+critic_model.add(Activation('relu'))
+
+critic_model.add(Dense(256, init='lecun_uniform'))
+critic_model.add(Dropout(0.2))
+critic_model.add(Activation('relu'))
+
+# critic_model.add(Dense(256, init='lecun_uniform'))
+# critic_model.add(Dropout(0.2))
+# critic_model.add(Activation('relu'))
+
+critic_model.add(Dense(1, init='lecun_uniform'))
+critic_model.add(Activation('linear'))
+
+if weights != None:
+critic_model.load_weights(weights)
+
+#c_optimizer = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
+c_optimizer = RMSprop()
+critic_model.compile(loss='mse', optimizer=c_optimizer)
+plot(critic_model, to_file='graphics/critic_model.png', show_shapes=True)
+return critic_model
+
+def predict(self, orig_state, epsilon):
+
+if (random.random() < epsilon): #choose random action
+action = np.random.randint(0, self.action_space)
+else: #choose best action from Q(s,a) values
+qval = self.actor_model.predict(orig_state.reshape(1,self.observation_space) )[0]
+action = (np.argmax(qval))
+
+return action
+def train(self, new_observation, new_reward, new_action, done, orig_state, orig_reward):
+orig_val = self.critic_model.predict(orig_state.reshape(1,self.observation_space))
+
+new_state = np.array(new_observation)
+new_val = self.critic_model.predict(new_state.reshape(1,self.observation_space))
+if not done: # Non-terminal state.
+target = orig_reward + ( self.gamma * new_val)
+else:
+# In terminal states, the environment tells us
+# the value directly.
+target = orig_reward + ( self.gamma * new_reward )
+best_val = max((orig_val * self.gamma), target)
+self.critic_replay.append([orig_state, best_val])
+# If we are in a terminal state, append a replay for it also.
+if done:
+self.critic_replay.append( [new_state, float(new_reward)] )
+
+actor_delta = new_val - orig_val
+self.actor_replay.append([orig_state, new_action, actor_delta])
+
+# Critic Replays...
+while(len(self.critic_replay) > self.buffer_len): # Trim replay buffer
+self.critic_replay.pop(0)
+
+# Start training when we have enough samples.
+if(len(self.critic_replay) >= self.buffer_len):
+#for zz in range(100):
+minibatch = random.sample(self.critic_replay, self.batchSize)
+X_train = []
+y_train = []
+for memory in minibatch:
+m_state, m_value = memory
+y = np.empty([1])
+y[0] = m_value
+X_train.append(m_state.reshape((self.observation_space,)))
+y_train.append(y.reshape((1,)))
+X_train = np.array(X_train)
+y_train = np.array(y_train)
+if VERBOSE > 0:
+print('critic_model')
+self.critic_hist = (self.critic_hist + self.critic_model.fit(X_train, y_train, batch_size=self.batchSize, nb_epoch=1, verbose=VERBOSE, shuffle=False).history['loss'][0]) / 2
+
+while(len(self.actor_replay) > self.buffer_len):
+self.actor_replay.pop(0)
+
+if(len(self.actor_replay) >= self.buffer_len):
+#for zz in range(100):
+X_train = []
+y_train = []
+minibatch = random.sample(self.actor_replay, self.batchSize)
+for memory in minibatch:
+m_orig_state, m_action, m_value = memory
+
+old_qval = self.actor_model.predict( m_orig_state.reshape(1,self.observation_space,) )
+y = np.zeros(( 1, self.action_space ))
+y[:] = old_qval[:]
+
+y[0][m_action] = m_value
+#y[0] = np.array(m_value)
+X_train.append(m_orig_state.reshape((self.observation_space,)))
+y_train.append(y.reshape((self.action_space,)))
+X_train = np.array(X_train)
+y_train = np.array(y_train)
+if VERBOSE > 0:
+print('actor_model')
+self.actor_hist = (self.actor_hist + self.actor_model.fit(X_train, y_train, batch_size=self.batchSize, nb_epoch=1, verbose=VERBOSE, shuffle=False).history['loss'][0]) / 2
+
+
+# Bookkeeping at the end of the turn.
+# observation = new_observation
+# reward = new_reward
+def save_state(self, prefix=''):
+self.critic_model.save_weights('ai_models/' + prefix + 'critic_car.h5')
+self.actor_model.save_weights('ai_models/'  + prefix + 'actor_car.h5')
+\end{python}
+
+\chapter{Листинг кода} \label{AppendixB}
+\begin{python}
+import random
+import math
+from math import *
+import numpy as np
+random.seed(1)
+import pygame
+from pygame.color import THECOLORS
+
+import pymunk
+from pymunk.vec2d import Vec2d
+from pymunk.pygame_util import draw
+
+# PyGame init
+width = 1000
+height = 700
+pygame.init()
+screen = pygame.display.set_mode((width, height))
+clock = pygame.time.Clock()
+
+max_dist = sqrt(width**2 + height**2)
+# Turn off alpha since we don't use it.
+screen.set_alpha(None)
+
+# Showing sensors and redrawing slows things down.
+show_sensors = True
+draw_screen = True
+
+
+def calc_dist(x1, y1, x2, y2):
+return sqrt((x1-x2)**2 + (y1-y2)**2)
+
+def get_angle_to_goal(x, y, angle, goal_x, goal_y):
+absolute_angle_to = atan2(goal_y - y, goal_x - x)
+relative_angle_to = absolute_angle_to - angle
+while relative_angle_to > pi:
+relative_angle_to -= 2.0 * pi
+
+while relative_angle_to < -pi:
+relative_angle_to += 2.0 * pi
+
+return relative_angle_to
+
+class GameState:
+def __init__(self):
+
+#angle_step = 1.0463 / random.uniform(0.5, 4)
+#angle_step = 1.0463 / random.randint(1, 2)
+self.angle_step = 1.0463 / 2
+# Global-ish.
+self.crashed = False
+
+# Physics stuff.
+self.space = pymunk.Space()
+self.space.gravity = pymunk.Vec2d(0., 0.)
+
+# Create the car.
+self.create_car(100, 100, 0.5)
+
+# Record steps.
+self.num_steps = 0
+
+# Create walls.
+static = [
+pymunk.Segment(
+self.space.static_body,
+(0, 1), (0, height), 1),
+pymunk.Segment(
+self.space.static_body,
+(1, height), (width, height), 1),
+pymunk.Segment(
+self.space.static_body,
+(width-1, height), (width-1, 1), 1),
+pymunk.Segment(
+self.space.static_body,
+(1, 1), (width, 1), 1)
+]
+for s in static:
+s.friction = 1.
+s.group = 1
+s.collision_type = 1
+s.color = THECOLORS['red']
+self.space.add(static)
+
+# Create some obstacles, semi-randomly.
+# We'll create three and they'll move around to prevent over-fitting.
+self.obstacles = []
+self.obstacles.append(self.create_obstacle(400, 450, 80))
+self.obstacles.append(self.create_obstacle(600, 200, 80))
+#self.obstacles.append(self.create_obstacle(600, 600, 35))
+
+# self.goal_coord = (800, 600)
+# self.goal_radius = 50
+# self.create_goal(self.goal_coord[0], self.goal_coord[1], self.goal_radius)
+self.prev_goal_dist = 999
+self.steps = 0
+self.max_steps = 100
+# Create a cat.
+self.create_cat()
+
+def reset(self):
+self.car_body.position = (200, 200)
+self.car_body.angle = (random.random() - 0.5) * 1.6 * 2
+#self.car_body.angle = -1.6
+
+self.cat_body.position = 800, 600
+self.cat_body.velocity = Vec2d(1, 0)*0
+self.steps = 0
+
+
+return self.get_features()[0]
+
+def get_features(self):
+x, y = self.car_body.position
+
+features = []
+goal_angle = get_angle_to_goal(x, y, self.car_body.angle, self.cat_body.position[0], self.cat_body.position[1])
+readings = self.get_sonar_readings(x, y, self.car_body.angle)
+goal_angle /= (2 * pi)
+features.append(goal_angle+0.5)
+for r in readings:
+features.append(r / 40)
+features.append(self.angle_step)
+return features, readings
+
+def create_obstacle(self, x, y, r):
+c_body = pymunk.Body(pymunk.inf, pymunk.inf)
+c_shape = pymunk.Circle(c_body, r)
+c_shape.elasticity = 1.0
+c_body.position = x, y
+c_shape.color = THECOLORS["blue"]
+self.space.add(c_body, c_shape)
+return c_body
+
+def create_goal(self, x, y, r):
+c_body = pymunk.Body(pymunk.inf, pymunk.inf)
+c_shape = pymunk.Circle(c_body, r)
+c_shape.elasticity = 1.0
+c_body.position = x, y
+c_shape.color = THECOLORS["white"]
+self.space.add(c_body, c_shape)
+return c_body
+
+def create_cat(self):
+inertia = pymunk.moment_for_circle(1, 0, 14, (0, 0))
+self.cat_body = pymunk.Body(1, inertia)
+self.cat_body = pymunk.Body(pymunk.inf, pymunk.inf)
+self.cat_body.position = 800, 600
+self.cat_shape = pymunk.Circle(self.cat_body, 50)
+self.cat_shape.color = THECOLORS["white"]
+self.cat_shape.elasticity = 1.0
+self.cat_shape.angle = 0.5
+direction = Vec2d(1, 0).rotated(self.cat_body.angle)
+self.space.add(self.cat_body, self.cat_shape)
+
+def create_car(self, x, y, r):
+inertia = pymunk.moment_for_circle(1, 0, 14, (0, 0))
+self.car_body = pymunk.Body(1, inertia)
+self.car_body.position = x, y
+self.car_shape = pymunk.Circle(self.car_body, 25)
+self.car_shape.color = THECOLORS["green"]
+self.car_shape.elasticity = 0.0
+self.car_body.angle = r
+driving_direction = Vec2d(1, 0).rotated(self.car_body.angle)
+self.car_body.apply_impulse(driving_direction)
+self.space.add(self.car_body, self.car_shape)
+
+def step(self, action):
+
+if action == 0:  # Turn left.
+self.car_body.angle -= self.angle_step
+elif action == 1:  # Turn right.
+self.car_body.angle += self.angle_step
+elif action == 2:
+pass
+
+# Move obstacles.
+# if self.num_steps % 100 == 0:
+#     self.move_obstacles()
+
+# # Move cat.
+# if self.num_steps % 5 == 0:
+#     self.move_cat()
+
+driving_direction = Vec2d(1, 0).rotated(self.car_body.angle)
+self.car_body.velocity = 100 * driving_direction
+# self.car_body.velocity_limit = 20
+# self.car_body.force = 0.5 * Vec2d(1, 0).rotated(self.car_body.angle)
+
+# Update the screen and stuff.
+screen.fill(THECOLORS["black"])
+draw(screen, self.space)
+self.space.step(0.5)
+if draw_screen:
+pygame.display.flip()
+clock.tick()
+
+# Get the current location and the readings there.
+x, y = self.car_body.position
+goal_distance = calc_dist(x, y, self.cat_body.position[0], self.cat_body.position[1])
+features, readings = self.get_features()
+
+# state = np.array([readings])
+#
+# # Set the reward.
+# # Car crashed when any reading == 1
+# if self.car_is_crashed(readings):
+#     self.crashed = True
+#     reward = -500
+#     self.recover_from_crash(driving_direction)
+# else:
+#     # Higher readings are better, so return the sum.
+#     reward = -5 + int(self.sum_readings(readings) / 10)
+# self.num_steps += 1
+timing_rate = (self.max_steps - self.steps) / self.max_steps
+close_rate = (max_dist - goal_distance) / max_dist
+#print(timing_rate, close_rate)
+# assert timing_rate <= 1 and timing_rate >= 0
+# assert close_rate <= 1 and close_rate >= 0
+r1 = (timing_rate + close_rate) / 2 * 20
+
+if self.prev_goal_dist > goal_distance:
+reward = 10
+else:
+reward = -10
+
+
+#reward -= self.steps * 0.09
+self.prev_goal_dist = goal_distance
+done = False
+if self.car_is_crashed(readings):
+reward = -50
+done = True
+if goal_distance < 100:
+#add = (self.max_steps - self.steps) / 20
+reward = 50
+done = True
+
+if self.steps > self.max_steps:
+done = True
+self.steps += 1
+
+return features, reward, done
+
+def move_obstacles(self):
+# Randomly move obstacles around.
+for obstacle in self.obstacles:
+speed = random.randint(1, 5)
+direction = Vec2d(1, 0).rotated(self.car_body.angle + random.randint(-2, 2))
+obstacle.velocity = speed * direction
+
+def move_cat(self):
+speed = random.randint(50, 100)
+self.cat_body.angle -= random.randint(-1, 1)
+direction = Vec2d(1, 0).rotated(self.cat_body.angle)
+self.cat_body.velocity = speed * direction
+
+def car_is_crashed(self, readings):
+if readings[0] == 1 or readings[1] == 1 or readings[2] == 1:
+return True
+else:
+return False
+
+def recover_from_crash(self, driving_direction):
+"""
+We hit something, so recover.
+"""
+while self.crashed:
+# Go backwards.
+self.car_body.velocity = -100 * driving_direction
+self.crashed = False
+for i in range(10):
+self.car_body.angle += .2  # Turn a little.
+screen.fill(THECOLORS["red"])  # Red is scary!
+draw(screen, self.space)
+self.space.step(1./10)
+if draw_screen:
+pygame.display.flip()
+clock.tick()
+
+def sum_readings(self, readings):
+"""Sum the number of non-zero readings."""
+tot = 0
+for i in readings:
+tot += i
+return tot
+
+def get_sonar_readings(self, x, y, angle):
+readings = []
+"""
+Instead of using a grid of boolean(ish) sensors, sonar readings
+simply return N "distance" readings, one for each sonar
+we're simulating. The distance is a count of the first non-zero
+reading starting at the object. For instance, if the fifth sensor
+in a sonar "arm" is non-zero, then that arm returns a distance of 5.
+"""
+# Make our arms.
+arm_left = self.make_sonar_arm(x, y)
+arm_middle = arm_left
+arm_right = arm_left
+
+# Rotate them and get readings.
+readings.append(self.get_arm_distance(arm_left, x, y, angle, 0.75))
+readings.append(self.get_arm_distance(arm_middle, x, y, angle, 0))
+readings.append(self.get_arm_distance(arm_right, x, y, angle, -0.75))
+
+if show_sensors:
+pygame.display.update()
+
+return readings
+
+def get_arm_distance(self, arm, x, y, angle, offset):
+# Used to count the distance.
+i = 0
+
+# Look at each point and see if we've hit something.
+for point in arm:
+i += 1
+
+# Move the point to the right spot.
+rotated_p = self.get_rotated_point(
+x, y, point[0], point[1], angle + offset
+)
+
+# Check if we've hit something. Return the current i (distance)
+# if we did.
+if rotated_p[0] <= 0 or rotated_p[1] <= 0 \
+or rotated_p[0] >= width or rotated_p[1] >= height:
+return i  # Sensor is off the screen.
+else:
+obs = screen.get_at(rotated_p)
+if self.get_track_or_not(obs) != 0:
+return i
+
+if show_sensors:
+pygame.draw.circle(screen, (255, 255, 255), (rotated_p), 2)
+
+# Return the distance for the arm.
+return i
+
+def make_sonar_arm(self, x, y):
+spread = 10  # Default spread.
+distance = 20  # Gap before first sensor.
+arm_points = []
+# Make an arm. We build it flat because we'll rotate it about the
+# center later.
+for i in range(1, 40):
+arm_points.append((distance + x + (spread * i), y))
+
+return arm_points
+
+def get_rotated_point(self, x_1, y_1, x_2, y_2, radians):
+# Rotate x_2, y_2 around x_1, y_1 by angle.
+x_change = (x_2 - x_1) * math.cos(radians) + \
+(y_2 - y_1) * math.sin(radians)
+y_change = (y_1 - y_2) * math.cos(radians) - \
+(x_1 - x_2) * math.sin(radians)
+new_x = x_change + x_1
+new_y = height - (y_change + y_1)
+return int(new_x), int(new_y)
+
+def get_track_or_not(self, reading):
+if reading == THECOLORS['black'] or reading == THECOLORS['white']:
+return 0
+else:
+return 1
+
+if __name__ == "__main__":
+game_state = GameState()
+c = 0
+game_state.reset()
+x_min = 1000
+x_max = 0
+while True:
+#game_state.step((random.randint(0, 1)))
+features, reward, done = game_state.step(0)
+x_min = min(x_min, game_state.car_body.position[0])
+x_max = max(x_max, game_state.car_body.position[0])
+if done:
+print('radius:', (x_max - x_min) / 2)
+\end{python}
